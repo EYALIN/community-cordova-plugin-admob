@@ -1,0 +1,54 @@
+{
+  "name": "community-cordova-plugin-admob",
+  "version": "1.0.1",
+  "description": "Trustable Google AdMob Cordova Plugin",
+  "main": "lib/index.js",
+  "module": "esm/index.js",
+  "typings": "esm/index.d.ts",
+  "scripts": {
+    "test": "echo \"No tests yet\""
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/cordova": "^0.0.34",
+    "@types/plist": "^3.0.2",
+    "typescript": "~4.7.4"
+  },
+  "author": "EYALIN",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EYALIN/community-cordova-plugin-admob.git"
+  },
+  "homepage": "https://github.com/EYALIN/community-cordova-plugin-admob",
+  "funding": "https://github.com/sponsors/EYALIN",
+  "bugs": {
+    "url": "https://github.com/EYALIN/community-cordova-plugin-admob/issues"
+  },
+  "files": [
+    "*.ts",
+    "*.md",
+    "*.xml",
+    "esm",
+    "lib",
+    "src",
+    "www"
+  ],
+  "keywords": [
+    "cordova",
+    "admob",
+    "plugin",
+    "ecosystem:cordova",
+    "cordova-android",
+    "cordova-ios",
+    "monetization",
+    "typescript"
+  ],
+  "cordova": {
+    "id": "community-cordova-plugin-admob",
+    "platforms": [
+      "android",
+      "ios"
+    ]
+  }
+}

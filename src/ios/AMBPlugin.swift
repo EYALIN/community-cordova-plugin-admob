@@ -209,7 +209,9 @@ class AMBPlugin: CDVPlugin {
             status: .ok,
             messageAs: ["type": eventName, "data": data]
         )
-        result?.setKeepCallbackAs(true)
-        commandDelegate.send(result, callbackId: readyCallbackId)
+        result.setKeepCallbackAs(true)
+        if let callbackId = readyCallbackId {
+            commandDelegate.send(result, callbackId: callbackId)
+        }
     }
 }

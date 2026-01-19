@@ -26,23 +26,23 @@ class AMBContext: AMBCoreContext {
     }
 
     func resolve() {
-        sendResult(CDVPluginResult(status: CDVCommandStatus_OK))
+        sendResult(CDVPluginResult(status: .ok))
     }
 
     func resolve(_ msg: Bool) {
-        sendResult(CDVPluginResult(status: CDVCommandStatus_OK, messageAs: msg))
+        sendResult(CDVPluginResult(status: .ok, messageAs: msg))
     }
 
     func resolve(_ msg: UInt) {
-        sendResult(CDVPluginResult(status: CDVCommandStatus_OK, messageAs: msg))
+        sendResult(CDVPluginResult(status: .ok, messageAs: msg))
     }
 
     func resolve(_ data: [String: Any]) {
-        sendResult(CDVPluginResult(status: CDVCommandStatus_OK, messageAs: data))
+        sendResult(CDVPluginResult(status: .ok, messageAs: data))
     }
 
     func reject(_ msg: String) {
-        sendResult(CDVPluginResult(status: CDVCommandStatus_ERROR, messageAs: msg))
+        sendResult(CDVPluginResult(status: .error, messageAs: msg))
     }
 
     static weak var plugin: AMBPlugin!
@@ -154,6 +154,8 @@ class AMBContext: AMBCoreContext {
     }
 
     private func sendResult(_ result: CDVPluginResult?) {
-        commandDelegate.send(result, callbackId: command.callbackId)
+        if let result = result, let callbackId = command.callbackId {
+            commandDelegate.send(result, callbackId: callbackId)
+        }
     }
 }

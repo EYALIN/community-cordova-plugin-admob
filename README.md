@@ -17,9 +17,9 @@ Please consider donating if you're using this plugin in an app that makes you mo
 
 ## Credits & Acknowledgments
 
-This plugin was originally forked from [admob-plus](https://github.com/admob-plus/admob-plus) by [Ratson](https://github.com/niceonedaviddevs).
+This plugin was originally forked from [admob-plus](https://github.com/admob-plus/admob-plus).
 
-A huge thank you to [Ratson](https://github.com/niceonedaviddevs) for creating and maintaining the original admob-plus plugin. The original work laid the foundation for this plugin, and we are grateful for their contributions to the Cordova community.
+A huge thank you to the [admob-plus](https://github.com/admob-plus) team for creating and maintaining the original plugin. The original work laid the foundation for this plugin, and we are grateful for their contributions to the Cordova community.
 
 Due to the original plugin no longer being actively maintained, this standalone repository was created to continue development, provide updates, and ensure compatibility with the latest AdMob SDK versions.
 
@@ -103,4 +103,4 @@ await rewarded.show();
 
 This project is [MIT licensed](LICENSE).
 
-[community_plugins]: https://github.com/niceonedaviddevs?tab=repositories&q=community&type=&language=&sort=
+[community_plugins]: https://github.com/EYALIN?tab=repositories&q=community&type=&language=&sort=

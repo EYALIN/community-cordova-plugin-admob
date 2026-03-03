@@ -10,7 +10,7 @@ This is the first release of `community-cordova-plugin-admob`, a standalone fork
 
 ### Credits
 
-A huge thank you to [Niceonedaviddevs](https://github.com/Niceonedaviddevs) for creating and maintaining the original admob-plus plugin. Due to the original plugin no longer being actively maintained, this standalone repository was created to continue development and provide updates.
+A huge thank you to the [admob-plus](https://github.com/admob-plus) team for creating and maintaining the original plugin. Due to the original plugin no longer being actively maintained, this standalone repository was created to continue development and provide updates.
 
 ### SDK Versions
 

@@ -23,7 +23,10 @@ import com.google.android.gms.ads.AdSize;
 import com.google.android.gms.ads.AdView;
 import com.google.android.gms.ads.LoadAdError;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import admob.plus.cordova.ExecuteContext;
 import admob.plus.cordova.Generated.Events;
@@ -45,10 +48,21 @@ public class Banner extends AdBase {
     @SuppressLint("StaticFieldLeak")
     private static FrameLayout webViewFrame;
 
+    // One slot per position, so a top banner and a bottom banner can coexist.
     @SuppressLint("StaticFieldLeak")
-    private static FrameLayout bannerSlot;
+    private static FrameLayout topBannerSlot;
 
-    private static int screenWidth = 0;
+    @SuppressLint("StaticFieldLeak")
+    private static FrameLayout bottomBannerSlot;
+
+    // Banners currently mounted in the shared linear layout. The layout is only
+    // torn down once the last one detaches.
+    private static final Set<Banner> linearBanners =
+            Collections.newSetFromMap(new ConcurrentHashMap<Banner, Boolean>());
+
+    // Window insets belong to the shared root layout, not to any single banner.
+    private static int lastTopInset = 0;
+    private static int lastBottomInset = 0;
 
     private final AdSize adSize;
     private final int gravity;
@@ -58,11 +72,11 @@ public class Banner extends AdBase {
     private RelativeLayout mRelativeLayout = null;
     private AdView mAdViewOld = null;
 
+    private int screenWidth = 0;
+
     private boolean hidden = false;
     private boolean linearBannerVisible = false;
 
-    private int lastTopInset = 0;
-    private int lastBottomInset = 0;
     private int lastRelativeTopInset = 0;
     private int lastRelativeBottomInset = 0;
 
@@ -81,10 +95,12 @@ public class Banner extends AdBase {
         ViewGroup vg = getParentView(rootLinearLayout);
         if (vg != null) vg.removeAllViews();
 
+        linearBanners.clear();
         rootLinearLayout = null;
         originalWebViewParent = null;
         webViewFrame = null;
-        bannerSlot = null;
+        topBannerSlot = null;
+        bottomBannerSlot = null;
     }
 
     private static void runJustBeforeBeingDrawn(final View view, final Runnable runnable) {
@@ -254,7 +270,10 @@ public class Banner extends AdBase {
                 if (offset == null) {
                     pendingShowAfterOrientationChange = false;
                     suppressBannerDuringOrientationChange = false;
-                    mAdView.setVisibility(View.VISIBLE);
+
+                    if (mAdView != null) {
+                        mAdView.setVisibility(View.VISIBLE);
+                    }
 
                     ensureLinearBannerLayout();
                     applyBannerSlotLayout();
@@ -381,7 +400,8 @@ public class Banner extends AdBase {
     private void ensureLinearBannerLayout() {
         View webView = getWebView();
 
-        if (rootLinearLayout != null && bannerSlot != null && webViewFrame != null) {
+        if (rootLinearLayout != null && topBannerSlot != null
+                && bottomBannerSlot != null && webViewFrame != null) {
             return;
         }
 
@@ -390,7 +410,11 @@ public class Banner extends AdBase {
             return;
 
         if (rootLinearLayout != null) {
-            resetLinearBannerLayout();
+            // Root is attached but the slots are gone — inconsistent state, so
+            // force a full teardown and rebuild rather than a partial reset.
+            linearBanners.clear();
+            detachFromLinearLayout();
+            teardownLinearLayoutIfUnused();
             wvParentView = getParentView(webView);
             if (wvParentView == null)
                 return;
@@ -405,9 +429,8 @@ public class Banner extends AdBase {
         webViewFrame = new FrameLayout(getActivity());
         webViewFrame.setBackgroundColor(Color.TRANSPARENT);
 
-        bannerSlot = new FrameLayout(getActivity());
-        bannerSlot.setBackgroundColor(Color.TRANSPARENT);
-        bannerSlot.setVisibility(View.GONE);
+        topBannerSlot = createBannerSlot();
+        bottomBannerSlot = createBannerSlot();
 
         wvParentView.removeView(webView);
 
@@ -421,29 +444,23 @@ public class Banner extends AdBase {
             return insets;
         });
 
-        if (isPositionTop()) {
-            rootLinearLayout.addView(bannerSlot, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    0
-            ));
+        // Both slots are always present; a banner picks the one matching its
+        // position, and an unused slot collapses to zero height.
+        rootLinearLayout.addView(topBannerSlot, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0
+        ));
 
-            rootLinearLayout.addView(webViewFrame, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    0,
-                    1.0F
-            ));
-        } else {
-            rootLinearLayout.addView(webViewFrame, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    0,
-                    1.0F
-            ));
+        rootLinearLayout.addView(webViewFrame, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1.0F
+        ));
 
-            rootLinearLayout.addView(bannerSlot, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    0
-            ));
-        }
+        rootLinearLayout.addView(bottomBannerSlot, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0
+        ));
 
         wvParentView.addView(rootLinearLayout, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -455,7 +472,7 @@ public class Banner extends AdBase {
             lastBottomInset = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom;
 
             view.post(() -> {
-                applyBannerSlotLayout();
+                applyAllBannerSlotLayouts();
                 clearWebViewInsetMargin(webView);
             });
 
@@ -466,23 +483,44 @@ public class Banner extends AdBase {
             ViewCompat.requestApplyInsets(rootLinearLayout);
 
             rootLinearLayout.postDelayed(() -> {
-                applyBannerSlotLayout();
+                applyAllBannerSlotLayouts();
                 clearWebViewInsetMargin(webView);
                 rootLinearLayout.requestLayout();
             }, 100);
         });
     }
 
+    @NonNull
+    private FrameLayout createBannerSlot() {
+        FrameLayout slot = new FrameLayout(getActivity());
+        slot.setBackgroundColor(Color.TRANSPARENT);
+        slot.setVisibility(View.GONE);
+        return slot;
+    }
+
+    @Nullable
+    private FrameLayout getBannerSlot() {
+        return isPositionTop() ? topBannerSlot : bottomBannerSlot;
+    }
+
+    private static void applyAllBannerSlotLayouts() {
+        for (Banner banner : linearBanners) {
+            banner.applyBannerSlotLayout();
+        }
+    }
+
     private void addBannerViewWithLinearLayout() {
         ensureLinearBannerLayout();
 
-        if (bannerSlot == null || mAdView == null)
+        FrameLayout slot = getBannerSlot();
+        if (slot == null || mAdView == null)
             return;
 
         linearBannerVisible = true;
+        linearBanners.add(this);
 
         removeFromParentView(mAdView);
-        bannerSlot.removeAllViews();
+        slot.removeAllViews();
 
         mAdView.setVisibility(
             suppressBannerDuringOrientationChange ? View.INVISIBLE : View.VISIBLE
@@ -492,12 +530,12 @@ public class Banner extends AdBase {
         mAdView.setFocusableInTouchMode(false);
         mAdView.setBackgroundColor(Color.TRANSPARENT);
 
-        bannerSlot.addView(mAdView, new FrameLayout.LayoutParams(
+        slot.addView(mAdView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
         ));
 
-        bannerSlot.setVisibility(View.VISIBLE);
+        slot.setVisibility(View.VISIBLE);
         applyBannerSlotLayout();
 
         if (rootLinearLayout != null) {
@@ -505,7 +543,7 @@ public class Banner extends AdBase {
                 ViewCompat.requestApplyInsets(rootLinearLayout);
 
                 rootLinearLayout.postDelayed(() -> {
-                    applyBannerSlotLayout();
+                    applyAllBannerSlotLayouts();
                     clearWebViewInsetMargin(getWebView());
                     rootLinearLayout.requestLayout();
                 }, 100);
@@ -514,31 +552,40 @@ public class Banner extends AdBase {
     }
 
     private void hideBannerLinearLayout() {
-        if (bannerSlot == null)
+        FrameLayout slot = getBannerSlot();
+        if (slot == null)
             return;
 
-        removeFromParentView(mAdView);
-        bannerSlot.removeAllViews();
-        bannerSlot.setVisibility(View.GONE);
+        linearBanners.remove(this);
 
-        ViewGroup.LayoutParams lp = bannerSlot.getLayoutParams();
+        removeFromParentView(mAdView);
+        slot.removeAllViews();
+        slot.setVisibility(View.GONE);
+
+        collapseSlot(slot);
+        clearWebViewInsetMargin(getWebView());
+    }
+
+    private static void collapseSlot(@NonNull FrameLayout slot) {
+        ViewGroup.LayoutParams lp = slot.getLayoutParams();
         if (lp instanceof LinearLayout.LayoutParams) {
             LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) lp;
             params.height = 0;
             params.setMargins(0, 0, 0, 0);
-            bannerSlot.setLayoutParams(params);
+            slot.setLayoutParams(params);
         }
     }
 
     private void applyBannerSlotLayout() {
-        if (bannerSlot == null || mAdView == null || !linearBannerVisible)
+        FrameLayout slot = getBannerSlot();
+        if (slot == null || mAdView == null || !linearBannerVisible)
             return;
 
         int adHeightPx = mAdView.getAdSize() != null
                 ? mAdView.getAdSize().getHeightInPixels(getActivity())
                 : adSize.getHeightInPixels(getActivity());
 
-        ViewGroup.LayoutParams slotLp = bannerSlot.getLayoutParams();
+        ViewGroup.LayoutParams slotLp = slot.getLayoutParams();
         if (slotLp instanceof LinearLayout.LayoutParams) {
             LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) slotLp;
 
@@ -550,32 +597,38 @@ public class Banner extends AdBase {
                 params.setMargins(0, 0, 0, lastBottomInset);
             }
 
-            bannerSlot.setLayoutParams(params);
-            bannerSlot.requestLayout();
+            slot.setLayoutParams(params);
+            slot.requestLayout();
         }
     }
 
-    private void clearWebViewInsetMargin(View webView) {
+    private static void clearWebViewInsetMargin(@Nullable View webView) {
+        if (webView == null)
+            return;
+
         ViewGroup.LayoutParams webLp = webView.getLayoutParams();
 
         if (webLp instanceof FrameLayout.LayoutParams) {
             FrameLayout.LayoutParams webParams = (FrameLayout.LayoutParams) webLp;
 
-            if (isPositionTop()) {
-                webParams.setMargins(
-                        webParams.leftMargin,
-                        0,
-                        webParams.rightMargin,
-                        webParams.bottomMargin
-                );
-            } else {
-                webParams.setMargins(
-                        webParams.leftMargin,
-                        webParams.topMargin,
-                        webParams.rightMargin,
-                        0
-                );
+            // A mounted slot already absorbs the inset on its own edge; an edge
+            // with no banner keeps whatever margin the system applied.
+            boolean topMounted = false;
+            boolean bottomMounted = false;
+            for (Banner banner : linearBanners) {
+                if (banner.isPositionTop()) {
+                    topMounted = true;
+                } else {
+                    bottomMounted = true;
+                }
             }
+
+            webParams.setMargins(
+                    webParams.leftMargin,
+                    topMounted ? 0 : webParams.topMargin,
+                    webParams.rightMargin,
+                    bottomMounted ? 0 : webParams.bottomMargin
+            );
 
             webView.setLayoutParams(webParams);
             webView.requestLayout();
@@ -583,14 +636,45 @@ public class Banner extends AdBase {
     }
 
     private void resetLinearBannerLayout() {
-        View webView = getWebView();
+        detachFromLinearLayout();
+        teardownLinearLayoutIfUnused();
+    }
 
+    /**
+     * Unmounts only this banner from the shared layout, leaving any other
+     * banner mounted in the opposite slot untouched.
+     */
+    private void detachFromLinearLayout() {
         linearBannerVisible = false;
+        linearBanners.remove(this);
         removeFromParentView(mAdView);
 
-        if (bannerSlot != null) {
-            bannerSlot.removeAllViews();
-            bannerSlot = null;
+        FrameLayout slot = getBannerSlot();
+        if (slot != null) {
+            slot.removeAllViews();
+            slot.setVisibility(View.GONE);
+            collapseSlot(slot);
+        }
+    }
+
+    /**
+     * Restores the original view hierarchy, but only once the last banner has
+     * detached — otherwise the surviving banner would lose its container.
+     */
+    private void teardownLinearLayoutIfUnused() {
+        if (!linearBanners.isEmpty())
+            return;
+
+        View webView = getWebView();
+
+        if (topBannerSlot != null) {
+            topBannerSlot.removeAllViews();
+            topBannerSlot = null;
+        }
+
+        if (bottomBannerSlot != null) {
+            bottomBannerSlot.removeAllViews();
+            bottomBannerSlot = null;
         }
 
         if (webViewFrame != null) {

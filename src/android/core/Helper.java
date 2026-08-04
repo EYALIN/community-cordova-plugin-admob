@@ -44,9 +44,13 @@ public class Helper {
     }
 
     public static int pxToDp(int px) {
+        // Must use `density`, not `xdpi`. `xdpi` is the panel's physical pixel
+        // density and on many devices it does not match the bucketed `density`
+        // the platform actually scales by, which skewed every reported banner
+        // size and every px-based adaptive width request. This keeps pxToDp the
+        // exact inverse of dpToPx.
         DisplayMetrics displayMetrics = Resources.getSystem().getDisplayMetrics();
-        int dp = Math.round(px / (displayMetrics.xdpi / DisplayMetrics.DENSITY_DEFAULT));
-        return dp;
+        return Math.round(px / displayMetrics.density);
     }
 
     public static List<String> jsonArray2stringList(@Nullable JSONArray a) {

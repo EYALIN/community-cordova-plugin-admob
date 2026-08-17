@@ -46,6 +46,9 @@ class AMBBanner: AMBAdBase, BannerViewDelegate, AdSizeDelegate {
     static let priortyLeast = UILayoutPriority(10)
     static var rootObservation: NSKeyValueObservation?
     static var marginTop: CGFloat?
+    // Holds the dynamic "top == statusBar.bottom" constraint so updateLayout() can replace it
+    // instead of stacking a new one on every root-view change (see updateLayout()).
+    static var dynamicTopConstraint: NSLayoutConstraint?
 
     static var rootView: UIView {
         return AMBContext.plugin.viewController.view!
@@ -133,8 +136,16 @@ class AMBBanner: AMBAdBase, BannerViewDelegate, AdSizeDelegate {
             bannerView.adSizeDelegate = self
             bannerView.rootViewController = plugin.viewController
         }
-        // Temporary height constraint to prevent 0-height error
-        let fallbackHeightConstraint = bannerView.heightAnchor.constraint(equalToConstant: 50)
+        // Pin the banner to its FIXED ad height (e.g. LargeBanner = 100). This constraint is kept
+        // active for the banner's whole life (it is NOT removed in bannerViewDidReceiveAd anymore).
+        // Reason: the banner lives inside a full-bleed, distribution=.fill stack view. If the height
+        // is left unconstrained, the fill stack stretches the banner to the whole screen (observed
+        // height 840) or, mid-layout during boot, collapses it to 0 — which makes GMA reload with a
+        // 0-height request and fail permanently with "Invalid ad width or height", leaving no banner.
+        // A required height == the requested fixed ad size keeps it stable. (adSize.size.height is 0
+        // only for adaptive sizes, which iOS never requests here; fall back to 50 defensively.)
+        let pinnedHeight = adSize.size.height > 0 ? adSize.size.height : 50
+        let fallbackHeightConstraint = bannerView.heightAnchor.constraint(equalToConstant: pinnedHeight)
         fallbackHeightConstraint.priority = .required
         fallbackHeightConstraint.isActive = true
         bannerView.adUnitID = adUnitId
@@ -203,13 +214,23 @@ class AMBBanner: AMBAdBase, BannerViewDelegate, AdSizeDelegate {
 
 
     private static func updateLayout() {
+        // This runs from a KVO observer on rootView.subviews, so it fires on EVERY view add/remove
+        // (banner refresh, GMA internal views, full-screen ad present/dismiss…). The old code
+        // activated a BRAND-NEW top constraint each time without deactivating the previous ones,
+        // so conflicting constraints accumulated until Auto Layout collapsed the stack view — the
+        // bottom banner vanished and the full-bleed stack could briefly black out the screen
+        // ("blink"). Make it idempotent: always tear down the prior dynamic top constraint first.
+        dynamicTopConstraint?.isActive = false
+        dynamicTopConstraint = nil
+
         if let bar = statusBarBackgroundView,
            !bar.isHidden,
            rootView.subviews.contains(stackView)
         {
-            NSLayoutConstraint.activate([
-                stackView.topAnchor.constraint(equalTo: bar.bottomAnchor, constant: marginTop ?? 0)
-            ])
+            AMBBannerStackView.topConstraint.isActive = false
+            let c = stackView.topAnchor.constraint(equalTo: bar.bottomAnchor, constant: marginTop ?? 0)
+            c.isActive = true
+            dynamicTopConstraint = c
         } else {
             // <-- qualify the static constraints
             AMBBannerStackView.topConstraint.isActive = stackView.hasTopBanner
@@ -243,9 +264,10 @@ class AMBBanner: AMBAdBase, BannerViewDelegate, AdSizeDelegate {
     // MARK: — BannerViewDelegate
 
     func bannerViewDidReceiveAd(_ bannerView: BannerView) {
-        if let tempConstraint = bannerView.constraints.first(where: { $0.firstAttribute == .height }) {
-            bannerView.removeConstraint(tempConstraint)
-        }
+        // Intentionally do NOT remove the height constraint here. The old code removed it so the ad's
+        // "natural" size could take over, but inside the fill stack view that let the banner stretch to
+        // full-screen (840) or collapse to 0 → "Invalid ad width or height" → banner gone. For our
+        // fixed-size iOS banner (LargeBanner) the pinned height IS the correct height, so keep it.
         Self.stackView.setNeedsLayout()
         Self.stackView.layoutIfNeeded()
         let info: [String: Any] = [

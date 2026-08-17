@@ -180,8 +180,16 @@ class AMBCoreAd: NSObject {
 
     deinit {
         let key = id
+        // Only remove the registry entry if it STILL points to this (deallocating) instance.
+        // Ads are keyed by `id` (defaults to the ad-unit-id); when a newer ad registers under the
+        // same key, this stale instance's deinit would otherwise blindly delete the NEWER ad's
+        // entry -> subsequent load()/show() fail with "Ad not found". Comparing ObjectIdentifier
+        // (a value, safe to capture in deinit) makes the removal identity-checked.
+        let deadId = ObjectIdentifier(self)
         DispatchQueue.main.async {
-            AMBCoreAd.ads.removeValue(forKey: key)
+            if let current = AMBCoreAd.ads[key], ObjectIdentifier(current) == deadId {
+                AMBCoreAd.ads.removeValue(forKey: key)
+            }
         }
     }
 }

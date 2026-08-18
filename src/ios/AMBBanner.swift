@@ -120,6 +120,7 @@ class AMBBanner: AMBAdBase, BannerViewDelegate, AdSizeDelegate {
             bannerView.delegate = nil
             bannerView.adSizeDelegate = nil
             Self.stackView.removeArrangedSubview(placeholder)
+            placeholder.removeFromSuperview()
             bannerView.removeFromSuperview()
             bannerView = nil
         }
@@ -186,6 +187,12 @@ class AMBBanner: AMBAdBase, BannerViewDelegate, AdSizeDelegate {
         if bannerView != nil {
             bannerView.isHidden = true
             Self.stackView.removeArrangedSubview(placeholder)
+            // removeArrangedSubview only stops the stack view from LAYING OUT the placeholder — the
+            // view stays in the hierarchy with its last (top-strip) frame and keeps intercepting
+            // touches OVER the WebView. That is the "menu/toolbar dead after a rewarded ad hides the
+            // banner, only fixed by restart" bug (hitTest under the menu button returned
+            // AMBBannerPlaceholder). Actually detach it from the view hierarchy.
+            placeholder.removeFromSuperview()
             Self.updateLayout()
         }
         ctx.resolve()

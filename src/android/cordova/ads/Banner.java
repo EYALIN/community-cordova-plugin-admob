@@ -479,13 +479,19 @@ public class Banner extends AdBase {
             return insets;
         });
 
-        rootLinearLayout.post(() -> {
-            ViewCompat.requestApplyInsets(rootLinearLayout);
+        // rootLinearLayout is a STATIC field: a teardown on any instance can null it while
+        // these posts are still queued, and the lambdas re-read the field when they finally
+        // run. Capture it locally, and re-check the field before touching shared layout state.
+        final ViewGroup root = rootLinearLayout;
+        root.post(() -> {
+            ViewCompat.requestApplyInsets(root);
 
-            rootLinearLayout.postDelayed(() -> {
+            root.postDelayed(() -> {
+                if (rootLinearLayout == null)
+                    return;
                 applyAllBannerSlotLayouts();
                 clearWebViewInsetMargin(webView);
-                rootLinearLayout.requestLayout();
+                root.requestLayout();
             }, 100);
         });
     }
@@ -539,13 +545,18 @@ public class Banner extends AdBase {
         applyBannerSlotLayout();
 
         if (rootLinearLayout != null) {
-            rootLinearLayout.post(() -> {
-                ViewCompat.requestApplyInsets(rootLinearLayout);
+            // Same static-field race as ensureLinearBannerLayout(): the null-check above only
+            // guards entry, while the queued lambdas re-read the field up to 100ms later.
+            final ViewGroup root = rootLinearLayout;
+            root.post(() -> {
+                ViewCompat.requestApplyInsets(root);
 
-                rootLinearLayout.postDelayed(() -> {
+                root.postDelayed(() -> {
+                    if (rootLinearLayout == null)
+                        return;
                     applyAllBannerSlotLayouts();
                     clearWebViewInsetMargin(getWebView());
-                    rootLinearLayout.requestLayout();
+                    root.requestLayout();
                 }, 100);
             });
         }

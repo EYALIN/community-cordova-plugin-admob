@@ -5,7 +5,6 @@ import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.core.graphics.Insets;
-import androidx.core.view.OnApplyWindowInsetsListener;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
@@ -16,8 +15,11 @@ import com.google.android.gms.ads.LoadAdError;
 import com.google.android.gms.ads.nativead.NativeAd;
 import com.google.android.gms.ads.nativead.NativeAdView;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.Objects;
 
 import admob.plus.cordova.ExecuteContext;
@@ -47,7 +49,13 @@ public class Native extends AdBase {
     private double lastRequestedY = 0.0;
     private int lastTopInset = 0;
     private int lastLeftInset = 0;
-    private OnApplyWindowInsetsListener insetsListener;
+    private boolean insetsAttached = false;
+
+    // The content view is shared by every Native instance and holds only ONE
+    // insets listener, so a single shared listener fans out to all instances
+    // that opted in (one instance attaching/detaching must not clobber another).
+    private static final Set<Native> insetsConsumers = new LinkedHashSet<>();
+    private static ViewGroup insetsHost;
 
     public Native(ExecuteContext ctx) {
         super(ctx);
@@ -140,9 +148,9 @@ public class Native extends AdBase {
             Objects.requireNonNull(getContentView()).addView(view);
         }
 
-        if (applySystemBarInsets && insetsListener == null) {
+        if (applySystemBarInsets && !insetsAttached) {
             attachInsetsListener();
-        } else if (!applySystemBarInsets && insetsListener != null) {
+        } else if (!applySystemBarInsets && insetsAttached) {
             detachInsetsListener();
         }
 
@@ -179,38 +187,51 @@ public class Native extends AdBase {
         view.setY((float) dpToPx(lastRequestedY) + topInset);
     }
 
+    private static final int INSETS_MASK =
+            WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout();
+
     private void attachInsetsListener() {
         ViewGroup contentView = getContentView();
         if (contentView == null) return;
-
-        int mask = WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout();
 
         // Seed from the current insets so the first applyPosition() is already
         // correct instead of flashing at the uncorrected spot for a frame.
         WindowInsetsCompat current = ViewCompat.getRootWindowInsets(contentView);
         if (current != null) {
-            Insets combined = current.getInsets(mask);
+            Insets combined = current.getInsets(INSETS_MASK);
             lastTopInset = combined.top;
             lastLeftInset = combined.left;
         }
 
-        insetsListener = (v, insets) -> {
-            Insets combined = insets.getInsets(mask);
-            lastTopInset = combined.top;
-            lastLeftInset = combined.left;
-            applyPosition();
-            return insets;
-        };
-        ViewCompat.setOnApplyWindowInsetsListener(contentView, insetsListener);
+        insetsConsumers.add(this);
+        insetsAttached = true;
+        if (insetsHost != contentView) {
+            if (insetsHost != null) {
+                ViewCompat.setOnApplyWindowInsetsListener(insetsHost, null);
+            }
+            insetsHost = contentView;
+            ViewCompat.setOnApplyWindowInsetsListener(contentView, (v, insets) -> {
+                Insets combined = insets.getInsets(INSETS_MASK);
+                for (Native ad : new ArrayList<>(insetsConsumers)) {
+                    ad.lastTopInset = combined.top;
+                    ad.lastLeftInset = combined.left;
+                    ad.applyPosition();
+                }
+                return insets;
+            });
+        }
         ViewCompat.requestApplyInsets(contentView);
     }
 
     private void detachInsetsListener() {
-        ViewGroup contentView = getContentView();
-        if (contentView != null) {
-            ViewCompat.setOnApplyWindowInsetsListener(contentView, null);
+        if (insetsAttached) {
+            insetsConsumers.remove(this);
+            insetsAttached = false;
+            if (insetsConsumers.isEmpty() && insetsHost != null) {
+                ViewCompat.setOnApplyWindowInsetsListener(insetsHost, null);
+                insetsHost = null;
+            }
         }
-        insetsListener = null;
         lastTopInset = 0;
         lastLeftInset = 0;
     }

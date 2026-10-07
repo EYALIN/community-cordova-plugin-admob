@@ -1,6 +1,27 @@
 import { MobileAd, MobileAdOptions } from './shared'
 
-type ShowOptions = { x: number; y: number; width: number; height: number }
+type ShowOptions = {
+  x: number
+  y: number
+  width: number
+  height: number
+  /**
+   * Measure `x`/`y` from the content area below the system bars (status bar,
+   * and the display cutout on Android) instead of from the window's physical
+   * top-left corner.
+   *
+   * Default `false` for backward compatibility: under edge-to-edge (forced
+   * from Android 15 / API 35 onward), the window spans the full screen, so a
+   * native ad positioned with a raw `y` lands higher than before by the
+   * status bar height unless the app already compensates for it itself. Set
+   * this to `true` only if the app does NOT already apply its own
+   * status-bar/inset correction to `y` (doing both double-corrects the
+   * position).
+   *
+   * This will become the default in a future release — see the README.
+   */
+  applySystemBarInsets?: boolean
+}
 
 export interface NativeAdOptions extends MobileAdOptions {
   view?: string
@@ -27,11 +48,15 @@ export default class NativeAd extends MobileAd<NativeAdOptions> {
       y: 0,
       width: 0,
       height: 0,
+      applySystemBarInsets: false,
       ...opts,
     })
   }
 
-  async showWith(elm: HTMLElement) {
+  async showWith(
+    elm: HTMLElement,
+    opts?: Pick<ShowOptions, 'applySystemBarInsets'>,
+  ) {
     const update = async () => {
       const r = elm.getBoundingClientRect()
       await this.show({
@@ -39,6 +64,7 @@ export default class NativeAd extends MobileAd<NativeAdOptions> {
         y: r.y,
         width: r.width,
         height: r.height,
+        ...opts,
       })
     }
     const observer = new MutationObserver(update)

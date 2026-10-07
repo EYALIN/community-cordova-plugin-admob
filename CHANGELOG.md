@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-10-07
+
+### Added
+
+- **Native ad position can now be measured from below the system bars**, via a
+  new opt-in `applySystemBarInsets` option on `NativeAd#show()`
+  ([#5](https://github.com/EYALIN/community-cordova-plugin-admob/issues/5)).
+  Under edge-to-edge (forced on Android 15 / API 35 onward) the window spans
+  the full screen, so a native ad positioned with a raw `y` lands higher than
+  before, offset by the status bar height (and, in landscape, by any
+  display-cutout inset on the left). iOS has the same class of issue against
+  the safe area. Passing `applySystemBarInsets: true` re-measures `x`/`y` from
+  the content area below the system bars/notch instead, and keeps re-applying
+  on rotation and later position updates. Defaults to `false` for backward
+  compatibility — see the README's "Native ad position under edge-to-edge"
+  section. **This will become the default in a future release.**
+
 ## [1.2.0] - 2026-08-04
 
 ### Fixed

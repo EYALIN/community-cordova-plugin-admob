@@ -93,6 +93,48 @@ await rewarded.load();
 await rewarded.show();
 ```
 
+### Native Ad
+
+```typescript
+const native = new admob.NativeAd({
+  adUnitId: 'ca-app-pub-xxx/yyy',
+});
+await native.load();
+await native.show({ x: 0, y: 0, width: 320, height: 100 });
+```
+
+#### Native ad position under edge-to-edge (`applySystemBarInsets`)
+
+`x`/`y` are measured from the window's physical top-left corner. On Android,
+edge-to-edge is forced from Android 15 (API 35) onward, so the window spans the
+full screen behind the status bar; a native ad shown with a raw `y` then lands
+higher than before, offset by the status bar height (and, in landscape, by any
+display-cutout inset on the left). iOS has the same class of issue: the native
+ad view is added to the view controller's root view, which also extends behind
+the status bar / notch, so a raw `y` can land under it there too.
+
+Pass `applySystemBarInsets: true` to measure `x`/`y` from the content area below
+the system bars (and display cutout) instead:
+
+```typescript
+await native.show({
+  x: 0,
+  y: 0,
+  width: 320,
+  height: 100,
+  applySystemBarInsets: true,
+});
+```
+
+- Default: `false`, for backward compatibility with apps that already apply
+  their own status-bar/inset correction to `y`. Do **not** opt in if your app
+  already does this — the correction would be applied twice.
+- The option is re-applied on rotation and on later position updates (it does
+  not only take effect once, at the first `show()`).
+- **This will become the default in a future release.** New integrations
+  should opt in now; existing apps should opt in once any app-side inset
+  correction is removed.
+
 ## Contributing
 
 - Star this repository

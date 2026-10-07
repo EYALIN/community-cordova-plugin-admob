@@ -22,9 +22,27 @@ class AMBNativeAd: AMBAdBase, NativeAdLoaderDelegate, NativeAdDelegate {
     private var mAd: NativeAd?
     private var ctxLoad: AMBContext?
 
+    // Opt-in (default false): without it, x/y keep being measured from the
+    // root view's top-left, same as before 1.3.0. The root view controller's
+    // view already extends under the status bar / notch (UIKit does not
+    // "edge-to-edge" the same way Android does, but the view's origin is
+    // still behind the safe area), so a native ad positioned with a raw y can
+    // land under the status bar/notch there too. Apps that already compensate
+    // app-side must NOT opt in, or the offset is applied twice. See README
+    // "Native ad position under edge-to-edge".
+    private var applySystemBarInsets = false
+    private var lastRequestedX: CGFloat = 0
+    private var lastRequestedY: CGFloat = 0
+    private var safeAreaObservation: NSKeyValueObservation?
+
     lazy var view: UIView = {
         return viewProvider.createView(mAd!)
     }()
+
+    deinit {
+        safeAreaObservation?.invalidate()
+        safeAreaObservation = nil
+    }
 
     init(
         id: String,
@@ -71,24 +89,58 @@ class AMBNativeAd: AMBAdBase, NativeAdLoaderDelegate, NativeAdDelegate {
     }
 
     override func show(_ ctx: AMBContext) {
+        applySystemBarInsets = (ctx.opt("applySystemBarInsets") as? Bool) ?? false
+
+        let root = plugin.viewController.view
+
         if
           let x = ctx.opt("x") as? Double,
           let y = ctx.opt("y") as? Double,
           let w = ctx.opt("width") as? Double,
           let h = ctx.opt("height") as? Double
         {
-            view.frame = CGRect(x: x, y: y, width: w, height: h)
+            lastRequestedX = CGFloat(x)
+            lastRequestedY = CGFloat(y)
+            view.frame = CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h))
+            applyPosition()
         }
 
         if
-          let root = plugin.viewController.view,
+          let root = root,
           view.superview != root
         {
             root.addSubview(view)
         }
 
+        if applySystemBarInsets {
+            observeSafeArea(on: root)
+        } else {
+            safeAreaObservation?.invalidate()
+            safeAreaObservation = nil
+        }
+
         view.isHidden = false
         viewProvider.didShow(self)
+    }
+
+    /// Applies the last requested x/y, adding the root view's current top/left
+    /// safe-area inset when applySystemBarInsets is on, restoring the
+    /// pre-1.3.0 meaning of the coordinates (measured below the status bar /
+    /// notch) instead of from the view's physical top-left.
+    private func applyPosition() {
+        let insets = applySystemBarInsets ? (plugin.viewController.view?.safeAreaInsets ?? .zero) : .zero
+        view.frame.origin = CGPoint(
+            x: lastRequestedX + insets.left,
+            y: lastRequestedY + insets.top
+        )
+    }
+
+    private func observeSafeArea(on root: UIView?) {
+        guard safeAreaObservation == nil, let root = root else { return }
+
+        safeAreaObservation = root.observe(\.safeAreaInsets, options: [.new]) { [weak self] _, _ in
+            self?.applyPosition()
+        }
     }
 
     override func hide(_ ctx: AMBContext) {

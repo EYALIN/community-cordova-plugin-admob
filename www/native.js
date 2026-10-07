@@ -84,11 +84,11 @@ var NativeAd = /** @class */ (function (_super) {
     NativeAd.prototype.show = function (opts) {
         return __awaiter(this, void 0, void 0, function () {
             return __generator(this, function (_a) {
-                return [2 /*return*/, _super.prototype.show.call(this, __assign({ x: 0, y: 0, width: 0, height: 0 }, opts))];
+                return [2 /*return*/, _super.prototype.show.call(this, __assign({ x: 0, y: 0, width: 0, height: 0, applySystemBarInsets: false }, opts))];
             });
         });
     };
-    NativeAd.prototype.showWith = function (elm) {
+    NativeAd.prototype.showWith = function (elm, opts) {
         return __awaiter(this, void 0, void 0, function () {
             var update, observer;
             var _this = this;
@@ -101,12 +101,7 @@ var NativeAd = /** @class */ (function (_super) {
                                 switch (_a.label) {
                                     case 0:
                                         r = elm.getBoundingClientRect();
-                                        return [4 /*yield*/, this.show({
-                                                x: r.x,
-                                                y: r.y,
-                                                width: r.width,
-                                                height: r.height,
-                                            })];
+                                        return [4 /*yield*/, this.show(__assign({ x: r.x, y: r.y, width: r.width, height: r.height }, opts))];
                                     case 1:
                                         _a.sent();
                                         return [2 /*return*/];

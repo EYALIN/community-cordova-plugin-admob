@@ -4,6 +4,10 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
+import androidx.core.graphics.Insets;
+import androidx.core.view.OnApplyWindowInsetsListener;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 import com.google.android.gms.ads.AdListener;
 import com.google.android.gms.ads.AdLoader;
@@ -31,6 +35,19 @@ public class Native extends AdBase {
     private AdLoader mLoader;
     private NativeAd mAd;
     private View view;
+
+    // Opt-in (default false): pre-1.3.0 behavior measured x/y from the window
+    // top-left, which edge-to-edge (forced on API 35+) turns into the physical
+    // screen top instead of the content area below the system bars. Apps that
+    // already compensate for the status bar/cutout themselves must NOT opt in,
+    // or the offset gets applied twice. Defaults to the old behavior for one
+    // minor release; see README "Native ad position under edge-to-edge".
+    private boolean applySystemBarInsets = false;
+    private double lastRequestedX = 0.0;
+    private double lastRequestedY = 0.0;
+    private int lastTopInset = 0;
+    private int lastLeftInset = 0;
+    private OnApplyWindowInsetsListener insetsListener;
 
     public Native(ExecuteContext ctx) {
         super(ctx);
@@ -115,14 +132,25 @@ public class Native extends AdBase {
             return;
         }
 
+        Boolean applyInsetsOpt = ctx.optBoolean("applySystemBarInsets");
+        applySystemBarInsets = applyInsetsOpt != null && applyInsetsOpt;
+
         if (view == null) {
             view = viewProvider.createView(mAd);
             Objects.requireNonNull(getContentView()).addView(view);
         }
 
+        if (applySystemBarInsets && insetsListener == null) {
+            attachInsetsListener();
+        } else if (!applySystemBarInsets && insetsListener != null) {
+            detachInsetsListener();
+        }
+
+        lastRequestedX = ctx.optDouble("x", 0.0);
+        lastRequestedY = ctx.optDouble("y", 0.0);
+
         view.setVisibility(View.VISIBLE);
-        view.setX((float) dpToPx(ctx.optDouble("x", 0.0)));
-        view.setY((float) dpToPx(ctx.optDouble("y", 0.0)));
+        applyPosition();
 
         ViewGroup.LayoutParams params = view.getLayoutParams();
         params.width = (int) dpToPx(ctx.optDouble("width", 0.0));
@@ -133,6 +161,58 @@ public class Native extends AdBase {
 
         view.requestLayout();
         ctx.resolve(true);
+    }
+
+    /**
+     * Applies the last requested x/y, adding the current system-bars + cutout
+     * top/left inset when applySystemBarInsets is on, so the coordinates are
+     * measured from the content area below the status bar (and right of any
+     * left-edge cutout) rather than from the physical window top-left.
+     */
+    private void applyPosition() {
+        if (view == null) return;
+
+        int topInset = applySystemBarInsets ? lastTopInset : 0;
+        int leftInset = applySystemBarInsets ? lastLeftInset : 0;
+
+        view.setX((float) dpToPx(lastRequestedX) + leftInset);
+        view.setY((float) dpToPx(lastRequestedY) + topInset);
+    }
+
+    private void attachInsetsListener() {
+        ViewGroup contentView = getContentView();
+        if (contentView == null) return;
+
+        int mask = WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout();
+
+        // Seed from the current insets so the first applyPosition() is already
+        // correct instead of flashing at the uncorrected spot for a frame.
+        WindowInsetsCompat current = ViewCompat.getRootWindowInsets(contentView);
+        if (current != null) {
+            Insets combined = current.getInsets(mask);
+            lastTopInset = combined.top;
+            lastLeftInset = combined.left;
+        }
+
+        insetsListener = (v, insets) -> {
+            Insets combined = insets.getInsets(mask);
+            lastTopInset = combined.top;
+            lastLeftInset = combined.left;
+            applyPosition();
+            return insets;
+        };
+        ViewCompat.setOnApplyWindowInsetsListener(contentView, insetsListener);
+        ViewCompat.requestApplyInsets(contentView);
+    }
+
+    private void detachInsetsListener() {
+        ViewGroup contentView = getContentView();
+        if (contentView != null) {
+            ViewCompat.setOnApplyWindowInsetsListener(contentView, null);
+        }
+        insetsListener = null;
+        lastTopInset = 0;
+        lastLeftInset = 0;
     }
 
     @Override
@@ -146,6 +226,8 @@ public class Native extends AdBase {
     }
 
     private void clear() {
+        detachInsetsListener();
+
         if (mAd != null) {
             mAd.destroy();
             mAd = null;

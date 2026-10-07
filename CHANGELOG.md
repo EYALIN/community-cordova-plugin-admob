@@ -19,6 +19,12 @@ All notable changes to this project will be documented in this file.
   compatibility — see the README's "Native ad position under edge-to-edge"
   section. **This will become the default in a future release.**
 
+### Fixed
+
+- Android: several native ads that opt in to `applySystemBarInsets` now share one
+  window-insets listener on the content view, so showing or destroying one ad no
+  longer removes the inset updates of another.
+
 ## [1.2.0] - 2026-08-04
 
 ### Fixed

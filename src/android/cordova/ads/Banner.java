@@ -166,6 +166,12 @@ public class Banner extends AdBase {
 
             @Override
             public void onAdLoaded() {
+                // AdMob delivers this on the main looper, possibly after onDestroy() (mAdView == null).
+                // Every branch below dereferences mAdView, so a late callback must be ignored (APP-335).
+                if (mAdView == null) {
+                    return;
+                }
+
                 if (offset == null && (linearBannerVisible || mAdViewOld != null)) {
                     addBannerViewWithLinearLayout();
                 } else if (offset != null && adView == mAdView && mAdView.getParent() == null) {
@@ -181,8 +187,9 @@ public class Banner extends AdBase {
                     applyBannerSlotLayout();
                 }
 
-                runJustBeforeBeingDrawn(adView, () -> emit(Events.BANNER_SIZE, computeAdSize()));
-                emit(Events.AD_LOAD, computeAdSize());
+                // Measure the view that loaded, not whatever mAdView is when the pre-draw fires.
+                runJustBeforeBeingDrawn(adView, () -> emit(Events.BANNER_SIZE, computeAdSize(adView)));
+                emit(Events.AD_LOAD, computeAdSize(adView));
             }
 
             @Override
@@ -195,9 +202,9 @@ public class Banner extends AdBase {
     }
 
     @NonNull
-    private HashMap<String, Object> computeAdSize() {
-        int width = mAdView.getWidth();
-        int height = mAdView.getHeight();
+    private HashMap<String, Object> computeAdSize(@NonNull AdView view) {
+        int width = view.getWidth();
+        int height = view.getHeight();
 
         return new HashMap<String, Object>() {{
             put("size", new HashMap<String, Object>() {{
@@ -246,11 +253,16 @@ public class Banner extends AdBase {
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
 
-        int w = getActivity().getResources().getDisplayMetrics().widthPixels;
+        final Activity activity = getActivity();
+        if (activity == null) {
+            return;
+        }
+
+        int w = activity.getResources().getDisplayMetrics().widthPixels;
         if (w != screenWidth) {
             screenWidth = w;
 
-            getActivity().runOnUiThread(() -> {
+            activity.runOnUiThread(() -> {
                  if (hidden) {
                     pendingShowAfterOrientationChange = false;
                     suppressBannerDuringOrientationChange = false;
@@ -762,7 +774,8 @@ public class Banner extends AdBase {
             view.post(() -> {
                 applyRelativeBannerMargins();
 
-                if (!suppressBannerDuringOrientationChange && pendingShowAfterOrientationChange) {
+                if (!suppressBannerDuringOrientationChange && pendingShowAfterOrientationChange
+                        && mAdView != null) {
                     mAdView.setVisibility(View.VISIBLE);
                     pendingShowAfterOrientationChange = false;
                 }
@@ -772,9 +785,16 @@ public class Banner extends AdBase {
         });
 
         mRelativeLayout.post(() -> {
+            if (mRelativeLayout == null) {
+                return;
+            }
             ViewCompat.requestApplyInsets(mRelativeLayout);
 
+            // Queued 100 ms: onDestroy()/destroyRelativeLayoutMode() may null both fields first.
             mRelativeLayout.postDelayed(() -> {
+                if (mRelativeLayout == null || mAdView == null) {
+                    return;
+                }
                 ViewCompat.requestApplyInsets(mRelativeLayout);
                 mAdView.requestLayout();
             }, 100);

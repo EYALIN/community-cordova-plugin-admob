@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-10-14
+
+### Fixed
+
+- **iOS: empty band under the tab bar when no banner is showing** (NfcReader APP-423). `AMBBanner.show()`
+  reserved the 100pt stack-view placeholder before any ad had loaded, so the WebView shrank even when
+  the ad never arrived (no fill, offline, ads off). The placeholder is now attached in
+  `bannerViewDidReceiveAd` (and on `show()` once an ad exists), and detached on `hide()` as before.
+
+- **Android: `NullPointerException` in `Banner.java` after the banner was destroyed** (MyDeviceDetails
+  4.11.26, 291 users, APP-335). `onAdLoaded()` of the AdMob listener, the 100 ms relative-layout
+  insets post and the insets listener dereferenced `mAdView` / `mRelativeLayout` after `onDestroy()`
+  had nulled them; `onConfigurationChanged()` used `getActivity()` without a null check. A late
+  callback is now ignored, the banner size is measured from the view that loaded (not the current
+  `mAdView`), and the queued posts re-check their fields.
+
 ## [1.3.0] - 2026-10-07
 
 ### Added

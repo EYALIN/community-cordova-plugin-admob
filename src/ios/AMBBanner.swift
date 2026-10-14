@@ -87,6 +87,8 @@ class AMBBanner: AMBAdBase, BannerViewDelegate, AdSizeDelegate {
     let offset: CGFloat?
     private var bannerView: BannerView!
     private let placeholder = AMBBannerPlaceholder()
+    private var showRequested = false
+    private var hasReceivedAd = false
 
     init(id: String,
          adUnitId: String,
@@ -156,34 +158,44 @@ class AMBBanner: AMBAdBase, BannerViewDelegate, AdSizeDelegate {
     }
 
     override func show(_ ctx: AMBContext) {
+        showRequested = true
         if let offset = offset {
             addBannerView(offset)
-        } else {
-            Self.prepareStackView()
-
-            if position == AMBBannerPosition.top {
-                Self.stackView.insertArrangedSubview(placeholder, at: 0)
-            } else {
-                Self.stackView.addArrangedSubview(placeholder)
-            }
-            placeholder.addSubview(bannerView)
-
-            bannerView.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                bannerView.topAnchor.constraint(equalTo: placeholder.topAnchor),
-                bannerView.bottomAnchor.constraint(equalTo: placeholder.bottomAnchor),
-                bannerView.leadingAnchor.constraint(equalTo: placeholder.leadingAnchor),
-                bannerView.trailingAnchor.constraint(equalTo: placeholder.trailingAnchor),
-
-            ])
+            bannerView.isHidden = false
+        } else if hasReceivedAd {
+            attachPlaceholder()
+            bannerView.isHidden = false
         }
-
-        bannerView.isHidden = false
+        // Stack mode with no ad yet: reserve NO space. The placeholder is attached by
+        // bannerViewDidReceiveAd, so a banner that never loads (no fill, offline, Pro) leaves the
+        // WebView full height instead of a 100pt empty band under the tab bar (APP-423).
         Self.updateLayout()
         ctx.resolve()
     }
 
+    /// Adds the banner to the bottom/top stack once an ad exists. Idempotent.
+    private func attachPlaceholder() {
+        guard bannerView != nil, placeholder.superview == nil else { return }
+        Self.prepareStackView()
+
+        if position == AMBBannerPosition.top {
+            Self.stackView.insertArrangedSubview(placeholder, at: 0)
+        } else {
+            Self.stackView.addArrangedSubview(placeholder)
+        }
+        placeholder.addSubview(bannerView)
+
+        bannerView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            bannerView.topAnchor.constraint(equalTo: placeholder.topAnchor),
+            bannerView.bottomAnchor.constraint(equalTo: placeholder.bottomAnchor),
+            bannerView.leadingAnchor.constraint(equalTo: placeholder.leadingAnchor),
+            bannerView.trailingAnchor.constraint(equalTo: placeholder.trailingAnchor),
+        ])
+    }
+
     override func hide(_ ctx: AMBContext) {
+        showRequested = false
         if bannerView != nil {
             bannerView.isHidden = true
             Self.stackView.removeArrangedSubview(placeholder)
@@ -275,6 +287,12 @@ class AMBBanner: AMBAdBase, BannerViewDelegate, AdSizeDelegate {
         // "natural" size could take over, but inside the fill stack view that let the banner stretch to
         // full-screen (840) or collapse to 0 → "Invalid ad width or height" → banner gone. For our
         // fixed-size iOS banner (LargeBanner) the pinned height IS the correct height, so keep it.
+        hasReceivedAd = true
+        if showRequested && offset == nil {
+            attachPlaceholder()
+            bannerView.isHidden = false
+            Self.updateLayout()
+        }
         Self.stackView.setNeedsLayout()
         Self.stackView.layoutIfNeeded()
         let info: [String: Any] = [
